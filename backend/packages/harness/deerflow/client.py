@@ -342,7 +342,7 @@ class DeerFlowClient:
             message: User message text.
             thread_id: Thread ID for conversation context. Auto-generated if None.
             authorization: Authorization token for knowledge base API calls.
-                Passed to tools that require authentication (e.g., local_search, knowledge_base_retrieve).
+                Passed to tools that require authentication (e.g., internal_news_search, knowledge_base_retrieve).
             knowledge_base_ids: List of knowledge base IDs to search/retrieve from.
                 Used by knowledge base tools to scope the search to specific knowledge bases.
             **kwargs: Override client defaults (model_name, thinking_enabled,
@@ -370,7 +370,7 @@ class DeerFlowClient:
             context["agent_name"] = self._agent_name
 
         # Pass authorization and knowledge_base_ids to tools via context
-        # These are used by local_search and knowledge_base_retrieve tools
+        # These are used by internal_news_search and knowledge_base_retrieve tools
         if authorization:
             context["authorization"] = authorization
         if knowledge_base_ids:

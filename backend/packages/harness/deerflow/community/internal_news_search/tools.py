@@ -1,8 +1,8 @@
 """
-Knowledge Base Search Tool - Search knowledge bases for documents matching a query via API.
+Internal News Search Tool - Search internal news content via API.
 
-This tool calls an external API to search documents from specific knowledge bases.
-Requires Authorization header and knowledge_base_ids from frontend.
+This tool calls an external API to search internal news content.
+Requires Authorization header from frontend.
 """
 
 import json
@@ -46,48 +46,17 @@ def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str |
     return None
 
 
-def _get_knowledge_base_ids(runtime: ToolRuntime[ContextT, ThreadState] | None) -> list[str]:
-    """Extract knowledge base IDs from runtime context or thread_data.
-
-    The IDs are expected to be passed from frontend via:
-    1. runtime.context["knowledge_base_ids"]
-    2. runtime.state["thread_data"]["knowledge_base_ids"]
-    """
-    if runtime is None:
-        return []
-
-    # Try to get from context first
-    if runtime.context:
-        kb_ids = runtime.context.get("knowledge_base_ids")
-        if kb_ids:
-            return kb_ids if isinstance(kb_ids, list) else [kb_ids]
-
-    # Try to get from thread_data
-    if runtime.state:
-        thread_data = runtime.state.get("thread_data")
-        if thread_data:
-            kb_ids = thread_data.get("knowledge_base_ids")
-            if kb_ids:
-                return kb_ids if isinstance(kb_ids, list) else [kb_ids]
-
-    return []
-
-
-def _search_kb_api(
+def _search_internal_news_api(
     query: str,
     api_url: str,
     auth_token: str | None,
-    knowledge_base_ids: list[str],
-    top_k: int = 10,
 ) -> dict[str, Any]:
-    """Call the knowledge base search API.
+    """Call the internal news search API.
 
     Args:
         query: Search query string
         api_url: API endpoint URL
         auth_token: Authorization token (Bearer token)
-        knowledge_base_ids: List of knowledge base IDs to search
-        top_k: Maximum number of results to return
 
     Returns:
         API response as dictionary
@@ -105,8 +74,7 @@ def _search_kb_api(
 
     payload = {
         "query": query,
-        "knowledge_base_ids": knowledge_base_ids,
-        "top_k": top_k,
+        "search_type": "hybrid",
     }
 
     try:
@@ -115,46 +83,41 @@ def _search_kb_api(
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"Knowledge base search API HTTP error: {e.response.status_code} - {e.response.text}")
+        logger.error(f"Internal news search API HTTP error: {e.response.status_code} - {e.response.text}")
         return {
             "error": f"API error: {e.response.status_code}",
             "details": e.response.text,
         }
     except httpx.RequestError as e:
-        logger.error(f"Knowledge base search API request error: {e}")
+        logger.error(f"Internal news search API request error: {e}")
         return {
             "error": f"Request failed: {str(e)}",
         }
     except Exception as e:
-        logger.error(f"Knowledge base search API unexpected error: {e}")
+        logger.error(f"Internal news search API unexpected error: {e}")
         return {
             "error": f"Unexpected error: {str(e)}",
         }
 
 
-@tool("knowledge_base_search", parse_docstring=True)
-def knowledge_base_search_tool(
+@tool("internal_news_search", parse_docstring=True)
+def internal_news_search(
     runtime: ToolRuntime[ContextT, ThreadState],
     query: str,
-    top_k: int = 10,
 ) -> str:
-    """Search knowledge bases for documents matching a query.
+    """Search internal news content.
 
-    Use this tool when you need to find relevant documents from knowledge bases
-    based on a search query. This tool calls the enhanced search API to retrieve
-    documents that match the given query.
+    Use this tool when you need to find information from:
+    - Internal company news
+    - Organization-specific news content
+    - Internal news and information
 
-    This tool is useful for:
-    - Finding documents related to a specific topic
-    - Searching for information across multiple knowledge bases
-    - Getting relevant documents with metadata and highlights
-
-    The search requires proper authorization and specific knowledge bases
-    that have been configured for this conversation.
+    The search requires proper authorization and uses a hybrid search approach
+    to find the most relevant news articles.
 
     Args:
         query: The search query describing what you want to find.
-        top_k: Maximum number of results to return. Default is 10.
+               Be specific and use relevant keywords for better results.
     """
     if not query:
         return json.dumps(
@@ -164,7 +127,7 @@ def knowledge_base_search_tool(
         )
 
     # Get configuration
-    config = get_app_config().get_tool_config("knowledge_base_search")
+    config = get_app_config().get_tool_config("internal_news_search")
 
     # Get API URL from config
     api_url = None
@@ -173,28 +136,22 @@ def knowledge_base_search_tool(
 
     if not api_url:
         return json.dumps(
-            {"error": "Knowledge base search API URL not configured. Please set 'api_url' in config."},
+            {"error": "Internal news search API URL not configured. Please set 'api_url' in config."},
             ensure_ascii=False,
             indent=2,
         )
 
-    # Get auth token and knowledge base IDs from runtime
+    # Get auth token from runtime
     auth_token = _get_auth_token(runtime)
-    knowledge_base_ids = _get_knowledge_base_ids(runtime)
 
     if not auth_token:
-        logger.warning("No authorization token found for knowledge_base_search tool")
-
-    if not knowledge_base_ids:
-        logger.warning("No knowledge_base_ids found for knowledge_base_search tool")
+        logger.warning("No authorization token found for internal_news_search tool")
 
     # Call the API
-    result = _search_kb_api(
+    result = _search_internal_news_api(
         query=query,
         api_url=api_url,
         auth_token=auth_token,
-        knowledge_base_ids=knowledge_base_ids,
-        top_k=top_k,
     )
 
     # Format the result
@@ -204,9 +161,9 @@ def knowledge_base_search_tool(
     # Normalize the response format
     normalized_result = {
         "query": query,
-        "knowledge_bases": knowledge_base_ids,
+        "total_results": result.get("data", {}).get("metadata", {}).get("total_count", 0),
         "results": result.get("data", {}).get("results", []),
-        "statistics": result.get("data", {}).get("statistics", {}),
+        "metadata": result.get("data", {}).get("metadata", {}),
     }
 
     return json.dumps(normalized_result, ensure_ascii=False, indent=2)
