@@ -26,6 +26,10 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
     - {base_dir}/threads/{thread_id}/user-data/uploads
     - {base_dir}/threads/{thread_id}/user-data/outputs
 
+    Also extracts frontend-provided parameters from runtime context:
+    - authorization: Auth token for API calls
+    - knowledge_base_ids: List of knowledge base IDs to search/retrieve from
+
     Lifecycle Management:
     - With lazy_init=True (default): Only compute paths, directories created on-demand
     - With lazy_init=False: Eagerly create directories in before_agent()
@@ -73,6 +77,40 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
         self._paths.ensure_thread_dirs(thread_id)
         return self._get_thread_paths(thread_id)
 
+    def _extract_frontend_params(self, runtime: Runtime) -> dict[str, any]:
+        """Extract parameters passed from frontend via runtime context.
+
+        These parameters are typically passed in the request config from frontend:
+        - authorization: Bearer token for API authentication
+        - knowledge_base_ids: List of knowledge base IDs to search
+
+        Args:
+            runtime: The LangGraph runtime instance.
+
+        Returns:
+            Dictionary containing extracted frontend parameters.
+        """
+        params = {}
+        context = runtime.context or {}
+
+        # Extract authorization token
+        authorization = context.get("authorization")
+        if authorization:
+            params["authorization"] = authorization
+            logger.debug("Extracted authorization token from runtime context")
+
+        # Extract knowledge base IDs
+        knowledge_base_ids = context.get("knowledge_base_ids")
+        if knowledge_base_ids:
+            # Ensure it's a list
+            if isinstance(knowledge_base_ids, str):
+                params["knowledge_base_ids"] = [knowledge_base_ids]
+            else:
+                params["knowledge_base_ids"] = list(knowledge_base_ids)
+            logger.debug("Extracted knowledge_base_ids from runtime context: %s", params["knowledge_base_ids"])
+
+        return params
+
     @override
     def before_agent(self, state: ThreadDataMiddlewareState, runtime: Runtime) -> dict | None:
         context = runtime.context or {}
@@ -92,8 +130,12 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
             paths = self._create_thread_directories(thread_id)
             logger.debug("Created thread data directories for thread %s", thread_id)
 
+        # Extract frontend-provided parameters
+        frontend_params = self._extract_frontend_params(runtime)
+
         return {
             "thread_data": {
                 **paths,
+                **frontend_params,
             }
         }

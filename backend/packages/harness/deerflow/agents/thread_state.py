@@ -11,6 +11,9 @@ class ThreadDataState(TypedDict):
     workspace_path: NotRequired[str | None]
     uploads_path: NotRequired[str | None]
     outputs_path: NotRequired[str | None]
+    # Frontend-provided parameters for knowledge base tools
+    authorization: NotRequired[str | None]
+    knowledge_base_ids: NotRequired[list[str] | None]
 
 
 class ViewedImageData(TypedDict):

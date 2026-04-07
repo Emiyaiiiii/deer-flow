@@ -318,6 +318,8 @@ class DeerFlowClient:
         message: str,
         *,
         thread_id: str | None = None,
+        authorization: str | None = None,
+        knowledge_base_ids: list[str] | None = None,
         **kwargs,
     ) -> Generator[StreamEvent, None, None]:
         """Stream a conversation turn, yielding events incrementally.
@@ -333,6 +335,10 @@ class DeerFlowClient:
         Args:
             message: User message text.
             thread_id: Thread ID for conversation context. Auto-generated if None.
+            authorization: Authorization token for knowledge base API calls.
+                Passed to tools that require authentication (e.g., local_search, knowledge_base_retrieve).
+            knowledge_base_ids: List of knowledge base IDs to search/retrieve from.
+                Used by knowledge base tools to scope the search to specific knowledge bases.
             **kwargs: Override client defaults (model_name, thinking_enabled,
                 plan_mode, subagent_enabled, recursion_limit).
 
@@ -352,9 +358,16 @@ class DeerFlowClient:
         self._ensure_agent(config)
 
         state: dict[str, Any] = {"messages": [HumanMessage(content=message)]}
-        context = {"thread_id": thread_id}
+        context: dict[str, Any] = {"thread_id": thread_id}
         if self._agent_name:
             context["agent_name"] = self._agent_name
+
+        # Pass authorization and knowledge_base_ids to tools via context
+        # These are used by local_search and knowledge_base_retrieve tools
+        if authorization:
+            context["authorization"] = authorization
+        if knowledge_base_ids:
+            context["knowledge_base_ids"] = knowledge_base_ids
 
         seen_ids: set[str] = set()
         cumulative_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
@@ -423,7 +436,15 @@ class DeerFlowClient:
 
         yield StreamEvent(type="end", data={"usage": cumulative_usage})
 
-    def chat(self, message: str, *, thread_id: str | None = None, **kwargs) -> str:
+    def chat(
+        self,
+        message: str,
+        *,
+        thread_id: str | None = None,
+        authorization: str | None = None,
+        knowledge_base_ids: list[str] | None = None,
+        **kwargs,
+    ) -> str:
         """Send a message and return the final text response.
 
         Convenience wrapper around :meth:`stream` that returns only the
@@ -434,13 +455,21 @@ class DeerFlowClient:
         Args:
             message: User message text.
             thread_id: Thread ID for conversation context. Auto-generated if None.
+            authorization: Authorization token for knowledge base API calls.
+            knowledge_base_ids: List of knowledge base IDs to search/retrieve from.
             **kwargs: Override client defaults (same as stream()).
 
         Returns:
             The last AI message text, or empty string if no response.
         """
         last_text = ""
-        for event in self.stream(message, thread_id=thread_id, **kwargs):
+        for event in self.stream(
+            message,
+            thread_id=thread_id,
+            authorization=authorization,
+            knowledge_base_ids=knowledge_base_ids,
+            **kwargs,
+        ):
             if event.type == "messages-tuple" and event.data.get("type") == "ai":
                 content = event.data.get("content", "")
                 if content:
