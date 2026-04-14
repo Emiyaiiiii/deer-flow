@@ -27,12 +27,17 @@ def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str |
     2. runtime.state["thread_data"]["authorization"]
     """
     if runtime is None:
+        logger.debug("_get_auth_token: runtime is None")
         return None
 
     # Try to get from context first (direct pass from frontend)
     if runtime.context:
         auth = runtime.context.get("authorization")
+        logger.debug(f"_get_auth_token: from runtime.context, auth present: {auth is not None}")
         if auth:
+            # Log token preview (first 50 chars) for debugging
+            token_preview = auth[:50] + "..." if len(auth) > 50 else auth
+            logger.info(f"_get_auth_token: Found auth token in runtime.context: {token_preview}")
             return auth
 
     # Try to get from thread_data (stored in state)
@@ -40,9 +45,14 @@ def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str |
         thread_data = runtime.state.get("thread_data")
         if thread_data:
             auth = thread_data.get("authorization")
+            logger.debug(f"_get_auth_token: from thread_data, auth present: {auth is not None}")
             if auth:
+                # Log token preview (first 50 chars) for debugging
+                token_preview = auth[:50] + "..." if len(auth) > 50 else auth
+                logger.info(f"_get_auth_token: Found auth token in thread_data: {token_preview}")
                 return auth
 
+    logger.warning("_get_auth_token: No authorization token found in runtime.context or thread_data")
     return None
 
 
@@ -146,6 +156,8 @@ def internal_news_search(
 
     if not auth_token:
         logger.warning("No authorization token found for internal_news_search tool")
+
+    logger.info(f"internal_news_search tool called with query: '{query}', api_url: {api_url}, auth_token present: {auth_token is not None}")
 
     # Call the API
     result = _search_internal_news_api(
