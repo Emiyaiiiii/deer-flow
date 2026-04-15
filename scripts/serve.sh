@@ -293,7 +293,7 @@ run_service "Gateway" \
 # 3. Frontend
 run_service "Frontend" \
     "cd frontend && $FRONTEND_CMD > ../logs/frontend.log 2>&1" \
-    3000 120
+    3000 1200
 
 # 4. Nginx
 run_service "Nginx" \
