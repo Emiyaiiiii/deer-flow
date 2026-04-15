@@ -469,8 +469,6 @@ class DeerFlowClient:
         message: str,
         *,
         thread_id: str | None = None,
-        authorization: str | None = None,
-        knowledge_base_ids: list[str] | None = None,
         **kwargs,
     ) -> Generator[StreamEvent, None, None]:
         """Stream a conversation turn, yielding events incrementally.
@@ -561,12 +559,16 @@ class DeerFlowClient:
         if self._agent_name:
             context["agent_name"] = self._agent_name
 
-        # Pass authorization and knowledge_base_ids to tools via context
-        # These are used by internal_news_search and knowledge_base_retrieve tools
+        authorization = kwargs.get("authorization")
+        knowledge_base_ids = kwargs.get("knowledge_base_ids")
+        category = kwargs.get("category")
+
         if authorization:
             context["authorization"] = authorization
         if knowledge_base_ids:
             context["knowledge_base_ids"] = knowledge_base_ids
+        if category:
+            context["category"] = category
 
         seen_ids: set[str] = set()
         # Cross-mode handoff: ids already streamed via LangGraph ``messages``
@@ -697,8 +699,6 @@ class DeerFlowClient:
         message: str,
         *,
         thread_id: str | None = None,
-        authorization: str | None = None,
-        knowledge_base_ids: list[str] | None = None,
         **kwargs,
     ) -> str:
         """Send a message and return the final text response.
@@ -713,9 +713,10 @@ class DeerFlowClient:
         Args:
             message: User message text.
             thread_id: Thread ID for conversation context. Auto-generated if None.
-            authorization: Authorization token for knowledge base API calls.
-            knowledge_base_ids: List of knowledge base IDs to search/retrieve from.
-            **kwargs: Override client defaults (same as stream()).
+            **kwargs: Override client defaults (same as stream()). Can include:
+                - authorization: Authorization token for knowledge base API calls
+                - knowledge_base_ids: List of knowledge base IDs to search/retrieve from
+                - category: Category for knowledge base filtering
 
         Returns:
             The accumulated text of the last AI message, or empty string
@@ -728,8 +729,6 @@ class DeerFlowClient:
         for event in self.stream(
             message,
             thread_id=thread_id,
-            authorization=authorization,
-            knowledge_base_ids=knowledge_base_ids,
             **kwargs,
         ):
             if event.type == "messages-tuple" and event.data.get("type") == "ai":

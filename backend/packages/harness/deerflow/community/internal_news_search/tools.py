@@ -20,39 +20,22 @@ logger = logging.getLogger(__name__)
 
 
 def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str | None:
-    """Extract authorization token from runtime context or thread_data.
+    """Extract authorization token from runtime context.
 
-    The token is expected to be passed from frontend via:
-    1. runtime.context["authorization"]
-    2. runtime.state["thread_data"]["authorization"]
+    The token is expected to be passed from frontend via runtime.context["authorization"].
     """
     if runtime is None:
         logger.debug("_get_auth_token: runtime is None")
         return None
 
-    # Try to get from context first (direct pass from frontend)
     if runtime.context:
         auth = runtime.context.get("authorization")
-        logger.debug(f"_get_auth_token: from runtime.context, auth present: {auth is not None}")
         if auth:
-            # Log token preview (first 50 chars) for debugging
             token_preview = auth[:50] + "..." if len(auth) > 50 else auth
             logger.info(f"_get_auth_token: Found auth token in runtime.context: {token_preview}")
             return auth
 
-    # Try to get from thread_data (stored in state)
-    if runtime.state:
-        thread_data = runtime.state.get("thread_data")
-        if thread_data:
-            auth = thread_data.get("authorization")
-            logger.debug(f"_get_auth_token: from thread_data, auth present: {auth is not None}")
-            if auth:
-                # Log token preview (first 50 chars) for debugging
-                token_preview = auth[:50] + "..." if len(auth) > 50 else auth
-                logger.info(f"_get_auth_token: Found auth token in thread_data: {token_preview}")
-                return auth
-
-    logger.warning("_get_auth_token: No authorization token found in runtime.context or thread_data")
+    logger.warning("_get_auth_token: No authorization token found in runtime.context")
     return None
 
 
