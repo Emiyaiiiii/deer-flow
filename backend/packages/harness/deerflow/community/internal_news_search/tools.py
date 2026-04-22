@@ -43,6 +43,10 @@ def _search_internal_news_api(
     query: str,
     api_url: str,
     auth_token: str | None,
+    top_k: int = 10,
+    search_type: str = "unified",
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, Any]:
     """Call the internal news search API.
 
@@ -50,6 +54,10 @@ def _search_internal_news_api(
         query: Search query string
         api_url: API endpoint URL
         auth_token: Authorization token (Bearer token)
+        top_k: Maximum number of results to return
+        search_type: Search type (unified, keyword, vector, hybrid)
+        start_date: Filter results from this date
+        end_date: Filter results until this date
 
     Returns:
         API response as dictionary
@@ -60,14 +68,27 @@ def _search_internal_news_api(
     }
 
     if auth_token:
-        # Ensure Bearer prefix
         if not auth_token.startswith("Bearer "):
             auth_token = f"Bearer {auth_token}"
         headers["Authorization"] = auth_token
 
+    filters: dict[str, Any] = {
+        "source_type": "news",
+    }
+
+    if start_date or end_date:
+        if start_date and end_date:
+            filters["time_range"] = {"gte": start_date, "lte": end_date}
+        elif start_date:
+            filters["time_range"] = start_date
+        elif end_date:
+            filters["time_range"] = end_date
+
     payload = {
         "query": query,
-        "search_type": "hybrid",
+        "filters": filters,
+        "search_type": search_type,
+        "top_k": top_k,
     }
 
     try:
@@ -93,10 +114,14 @@ def _search_internal_news_api(
         }
 
 
-@tool("internal_news_search", parse_docstring=True)
-def internal_news_search(
+@tool("web_search", parse_docstring=True)
+def web_search(
     runtime: ToolRuntime[ContextT, ThreadState],
     query: str,
+    top_k: int = 10,
+    search_type: str = "unified",
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> str:
     """Search internal news content.
 
@@ -111,6 +136,13 @@ def internal_news_search(
     Args:
         query: The search query describing what you want to find.
                Be specific and use relevant keywords for better results.
+        top_k: Maximum number of results to return. Default is 10.
+        search_type: Search algorithm type. Options are:
+            unified (default), keyword, vector, or hybrid.
+        start_date: Filter results from this date (inclusive). Format: YYYY-MM-DD.
+            Can also use relative format like last_7_days or year 2024 or year-month 2024-06.
+        end_date: Filter results until this date (inclusive). Format: YYYY-MM-DD.
+            Can also use relative format or year-month 2024-12 or date range dict.
     """
     if not query:
         return json.dumps(
@@ -120,7 +152,7 @@ def internal_news_search(
         )
 
     # Get configuration
-    config = get_app_config().get_tool_config("internal_news_search")
+    config = get_app_config().get_tool_config("web_search")
 
     # Get API URL from config
     api_url = None
@@ -138,15 +170,19 @@ def internal_news_search(
     auth_token = _get_auth_token(runtime)
 
     if not auth_token:
-        logger.warning("No authorization token found for internal_news_search tool")
+        logger.warning("No authorization token found for web_search tool")
 
-    logger.info(f"internal_news_search tool called with query: '{query}', api_url: {api_url}, auth_token present: {auth_token is not None}")
+    logger.info(f"web_search tool called with query: '{query}', api_url: {api_url}, auth_token present: {auth_token is not None}, search_type: {search_type}, start_date: {start_date}, end_date: {end_date}")
 
     # Call the API
     result = _search_internal_news_api(
         query=query,
         api_url=api_url,
         auth_token=auth_token,
+        top_k=top_k,
+        search_type=search_type,
+        start_date=start_date,
+        end_date=end_date,
     )
 
     # Format the result
@@ -156,9 +192,16 @@ def internal_news_search(
     # Normalize the response format
     normalized_result = {
         "query": query,
-        "total_results": result.get("data", {}).get("metadata", {}).get("total_count", 0),
+        "processed_query": result.get("data", {}).get("processed_query", ""),
+        "intent": result.get("data", {}).get("intent", ""),
+        "intent_confidence": result.get("data", {}).get("intent_confidence", 0.0),
+        "entities": result.get("data", {}).get("entities", []),
+        "tags": result.get("data", {}).get("tags", []),
+        "search_type": search_type,
+        "start_date": start_date,
+        "end_date": end_date,
         "results": result.get("data", {}).get("results", []),
-        "metadata": result.get("data", {}).get("metadata", {}),
+        "statistics": result.get("data", {}).get("statistics", {}),
     }
 
     return json.dumps(normalized_result, ensure_ascii=False, indent=2)

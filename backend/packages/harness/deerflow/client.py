@@ -532,7 +532,7 @@ class DeerFlowClient:
             message: User message text.
             thread_id: Thread ID for conversation context. Auto-generated if None.
             authorization: Authorization token for knowledge base API calls.
-                Passed to tools that require authentication (e.g., internal_news_search, knowledge_base_retrieve).
+                Passed to tools that require authentication (e.g., web_search, knowledge_base_search).
             knowledge_base_ids: List of knowledge base IDs to search/retrieve from.
                 Used by knowledge base tools to scope the search to specific knowledge bases.
             **kwargs: Override client defaults (model_name, thinking_enabled,

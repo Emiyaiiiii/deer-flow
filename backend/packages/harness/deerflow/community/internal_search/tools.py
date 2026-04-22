@@ -1,8 +1,7 @@
-"""
-Knowledge Base Search Tool - Search knowledge bases for documents matching a query via API.
+"""Internal Search Tool - Unified search for internal news and knowledge bases via API.
 
-This tool calls an external API to search documents from specific knowledge bases.
-Requires Authorization header and knowledge_base_ids from frontend.
+This tool provides unified search across internal knowledge bases and news using the
+enhanced search API. The source_type parameter determines whether to search documents or news.
 """
 
 import json
@@ -20,10 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str | None:
-    """Extract authorization token from runtime context.
-
-    The token is expected to be passed from frontend via runtime.context["authorization"].
-    """
+    """Extract authorization token from runtime context."""
     if runtime is None:
         logger.debug("_get_auth_token: runtime is None")
         return None
@@ -40,10 +36,7 @@ def _get_auth_token(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str |
 
 
 def _get_knowledge_base_ids(runtime: ToolRuntime[ContextT, ThreadState] | None) -> list[str]:
-    """Extract knowledge base IDs from runtime context.
-
-    The IDs are expected to be passed from frontend via runtime.context["knowledge_base_ids"].
-    """
+    """Extract knowledge base IDs from runtime context."""
     if runtime is None:
         logger.debug("_get_knowledge_base_ids: runtime is None")
         return []
@@ -59,10 +52,7 @@ def _get_knowledge_base_ids(runtime: ToolRuntime[ContextT, ThreadState] | None) 
 
 
 def _get_category(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str | None:
-    """Extract category from runtime context.
-
-    The category is expected to be passed from frontend via runtime.context["category"].
-    """
+    """Extract category from runtime context."""
     if runtime is None:
         logger.debug("_get_category: runtime is None")
         return None
@@ -77,27 +67,27 @@ def _get_category(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str | N
     return None
 
 
-def _search_kb_api(
+def _search_internal_api(
     query: str,
     api_url: str,
     auth_token: str | None,
+    source_type: str,
     knowledge_base_ids: list[str],
     top_k: int = 10,
     search_type: str = "unified",
-    source_type: str = "document",
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    """Call the knowledge base search API.
+    """Call the internal unified search API.
 
     Args:
         query: Search query string
         api_url: API endpoint URL
         auth_token: Authorization token (Bearer token)
+        source_type: Search source type (document or news)
         knowledge_base_ids: List of knowledge base IDs to search
         top_k: Maximum number of results to return
         search_type: Search type (unified, keyword, vector, hybrid)
-        source_type: Filter by source type (document, news, drawing, file)
         start_date: Filter results from this date
         end_date: Filter results until this date
 
@@ -115,9 +105,11 @@ def _search_kb_api(
         headers["Authorization"] = auth_token
 
     filters: dict[str, Any] = {
-        "knowledge_base_ids": [int(id_) for id_ in knowledge_base_ids] if knowledge_base_ids else [],
         "source_type": source_type,
     }
+
+    if source_type == "document" and knowledge_base_ids:
+        filters["knowledge_base_ids"] = [int(id_) for id_ in knowledge_base_ids]
 
     if start_date or end_date:
         if start_date and end_date:
@@ -140,18 +132,18 @@ def _search_kb_api(
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"Knowledge base search API HTTP error: {e.response.status_code} - {e.response.text}")
+        logger.error(f"Internal search API HTTP error: {e.response.status_code} - {e.response.text}")
         return {
             "error": f"API error: {e.response.status_code}",
             "details": e.response.text,
         }
     except httpx.RequestError as e:
-        logger.error(f"Knowledge base search API request error: {e}")
+        logger.error(f"Internal search API request error: {e}")
         return {
             "error": f"Request failed: {str(e)}",
         }
     except Exception as e:
-        logger.error(f"Knowledge base search API unexpected error: {e}")
+        logger.error(f"Internal search API unexpected error: {e}")
         return {
             "error": f"Unexpected error: {str(e)}",
         }
@@ -162,16 +154,7 @@ def _get_kb_ids_by_category(
     category: str,
     auth_token: str | None,
 ) -> list[str]:
-    """Fetch knowledge base IDs by category via API.
-
-    Args:
-        api_url: Full API URL for category endpoint
-        category: Category name to query
-        auth_token: Authorization token (Bearer token)
-
-    Returns:
-        List of knowledge base IDs from the category
-    """
+    """Fetch knowledge base IDs by category via API."""
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -203,38 +186,37 @@ def _get_kb_ids_by_category(
         return []
 
 
-@tool("knowledge_base_search", parse_docstring=True)
-def knowledge_base_search(
+@tool("web_search", parse_docstring=True)
+def web_search(
     runtime: ToolRuntime[ContextT, ThreadState],
     query: str,
+    source_type: str = "document",
     top_k: int = 10,
     search_type: str = "unified",
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> str:
-    """Search knowledge bases for documents matching a query.
+    """Search internal knowledge bases and news.
 
-    Use this tool when you need to find relevant documents from knowledge bases
-    based on a search query. This tool calls the enhanced search API to retrieve
-    documents that match the given query.
+    Use this tool when you need to find information from internal knowledge bases
+    or company news. This tool calls the enhanced search API to retrieve relevant
+    content.
 
     This tool is useful for:
-    - Finding documents related to a specific topic
-    - Searching for information across multiple knowledge bases
-    - Getting relevant documents with metadata and highlights
+    Finding documents from internal knowledge bases, searching company news and announcements, and retrieving relevant internal information.
 
-    The search requires proper authorization and specific knowledge bases
-    that have been configured for this conversation.
+    Required parameters from runtime context:
+    authorization: Authentication token for API access
+    knowledge_base_ids: List of knowledge base IDs to search (for document source)
+    category: Category name to filter knowledge bases (optional)
 
     Args:
         query: The search query describing what you want to find.
+        source_type: Content type to search. Can be document (for knowledge base search) or news (for news search). Default is document.
         top_k: Maximum number of results to return. Default is 10.
-        search_type: Search algorithm type. Options are:
-            unified (default), keyword, vector, or hybrid.
-        start_date: Filter results from this date (inclusive). Format: YYYY-MM-DD.
-            Can also use relative format like last_7_days or year 2024 or year-month 2024-06.
-        end_date: Filter results until this date (inclusive). Format: YYYY-MM-DD.
-            Can also use relative format or year-month 2024-12 or date range dict.
+        search_type: Search algorithm type. Can be unified, keyword, vector, or hybrid. Default is unified.
+        start_date: Filter results from this date (inclusive). Format: YYYY-MM-DD. Can also use relative format like last_7_days or year 2024 or year-month 2024-06.
+        end_date: Filter results until this date (inclusive). Format: YYYY-MM-DD. Can also use relative format like year-month 2024-12 or date range dict.
     """
     if not query:
         return json.dumps(
@@ -243,10 +225,15 @@ def knowledge_base_search(
             indent=2,
         )
 
-    # Get configuration
-    config = get_app_config().get_tool_config("knowledge_base_search")
+    if source_type not in ("document", "news"):
+        return json.dumps(
+            {"error": f"Invalid source_type: {source_type}. Must be 'document' or 'news'."},
+            ensure_ascii=False,
+            indent=2,
+        )
 
-    # Get API URL from config
+    config = get_app_config().get_tool_config("web_search")
+
     api_url = None
     category_api_url = None
     if config is not None:
@@ -255,41 +242,40 @@ def knowledge_base_search(
 
     if not api_url:
         return json.dumps(
-            {"error": "Knowledge base search API URL not configured. Please set 'api_url' in config."},
+            {"error": "Internal search API URL not configured. Please set 'api_url' in config."},
             ensure_ascii=False,
             indent=2,
         )
 
-    # Get auth token and knowledge base IDs from runtime
     auth_token = _get_auth_token(runtime)
     knowledge_base_ids = _get_knowledge_base_ids(runtime)
     category = _get_category(runtime)
 
     if not auth_token:
-        logger.warning("No authorization token found for knowledge_base_search tool")
+        logger.warning("No authorization token found for web_search tool")
 
     combined_kb_ids: list[str] = list(knowledge_base_ids)
 
-    if category and category_api_url:
+    if source_type == "document" and category and category_api_url:
         category_kb_ids = _get_kb_ids_by_category(category_api_url, category, auth_token)
         if category_kb_ids:
             combined_kb_ids = list(set(combined_kb_ids + category_kb_ids))
             logger.info(f"Combined knowledge_base_ids: {len(combined_kb_ids)} total (category: {category}, user_provided: {len(knowledge_base_ids)})")
         else:
             logger.warning(f"Failed to get knowledge base IDs for category '{category}', using user_provided IDs only")
-    elif category and not category_api_url:
+    elif source_type == "document" and category and not category_api_url:
         logger.warning(f"Category '{category}' provided but category_api_url not configured")
 
     if not combined_kb_ids:
-        logger.warning("No knowledge_base_ids found for knowledge_base_search tool")
+        logger.warning("No knowledge_base_ids found for web_search tool")
 
-    logger.info(f"knowledge_base_search tool called with query: '{query}', api_url: {api_url}, auth_token present: {auth_token is not None}, combined_kb_ids: {combined_kb_ids}, search_type: {search_type}, start_date: {start_date}, end_date: {end_date}")
+    logger.info(f"web_search tool called with query: '{query}', source_type: {source_type}, api_url: {api_url}, auth_token present: {auth_token is not None}, combined_kb_ids: {combined_kb_ids}, search_type: {search_type}, start_date: {start_date}, end_date: {end_date}")
 
-    # Call the API
-    result = _search_kb_api(
+    result = _search_internal_api(
         query=query,
         api_url=api_url,
         auth_token=auth_token,
+        source_type=source_type,
         knowledge_base_ids=combined_kb_ids,
         top_k=top_k,
         search_type=search_type,
@@ -297,13 +283,12 @@ def knowledge_base_search(
         end_date=end_date,
     )
 
-    # Format the result
     if "error" in result:
         return json.dumps(result, ensure_ascii=False, indent=2)
 
-    # Normalize the response format
     normalized_result = {
         "query": query,
+        "source_type": source_type,
         "processed_query": result.get("data", {}).get("processed_query", ""),
         "intent": result.get("data", {}).get("intent", ""),
         "intent_confidence": result.get("data", {}).get("intent_confidence", 0.0),
