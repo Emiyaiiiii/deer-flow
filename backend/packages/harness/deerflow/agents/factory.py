@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.graph.state import CompiledStateGraph
 
+    from deerflow.config.memory_config import MemoryConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -173,7 +175,7 @@ def _assemble_from_features(
       9.   MemoryMiddleware (memory feature)
       10.  ViewImageMiddleware (vision feature)
       11.  SubagentLimitMiddleware (subagent feature)
-      12.  LoopDetectionMiddleware (always)
+      12.  LoopDetectionMiddleware (loop_detection feature)
       13.  ClarificationMiddleware (always last)
 
     Two-phase ordering:
@@ -242,9 +244,27 @@ def _assemble_from_features(
         if isinstance(feat.memory, AgentMiddleware):
             chain.append(feat.memory)
         else:
-            from deerflow.agents.middlewares.memory_middleware import MemoryMiddleware
+            from deerflow.config.memory_config import get_memory_config, should_use_memory_tools
 
-            chain.append(MemoryMiddleware(agent_name=name))
+            memory_cfg: MemoryConfig = feat.memory_config or get_memory_config()
+            if should_use_memory_tools(memory_cfg):
+                from deerflow.agents.memory.tools import get_memory_tools
+
+                existing_names = {tool.name for tool in extra_tools}
+                for memory_tool in get_memory_tools():
+                    if memory_tool.name in existing_names:
+                        logger.warning("Memory tool name %r already exists and was skipped.", memory_tool.name)
+                        continue
+                    extra_tools.append(memory_tool)
+                    existing_names.add(memory_tool.name)
+                # MemoryMiddleware is intentionally NOT appended in tool mode.
+                # The model drives memory via tools instead of passive middleware.
+            else:
+                if memory_cfg.mode == "tool" and not memory_cfg.enabled:
+                    logger.warning("memory.mode is 'tool' but memory.enabled is false; memory tools will not be registered.")
+                from deerflow.agents.middlewares.memory_middleware import MemoryMiddleware
+
+                chain.append(MemoryMiddleware(agent_name=name, memory_config=memory_cfg))
 
     # --- [10] Vision ---
     if feat.vision is not False:
@@ -254,9 +274,11 @@ def _assemble_from_features(
             from deerflow.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
             chain.append(ViewImageMiddleware())
-        from deerflow.tools.builtins import view_image_tool
 
-        extra_tools.append(view_image_tool)
+        if feat.sandbox is not False:
+            from deerflow.tools.builtins import view_image_tool
+
+            extra_tools.append(view_image_tool)
 
     # --- [11] Subagent ---
     if feat.subagent is not False:
@@ -270,12 +292,27 @@ def _assemble_from_features(
 
         extra_tools.append(task_tool)
 
-    # --- [12] LoopDetection (always) ---
-    from deerflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+    # --- [12] LoopDetection ---
+    if feat.loop_detection is not False:
+        if isinstance(feat.loop_detection, AgentMiddleware):
+            chain.append(feat.loop_detection)
+        else:
+            from deerflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+            from deerflow.config.loop_detection_config import LoopDetectionConfig
 
-    chain.append(LoopDetectionMiddleware())
+            chain.append(LoopDetectionMiddleware.from_config(LoopDetectionConfig()))
 
-    # --- [13] Clarification (always last among built-ins) ---
+    # --- [13] TokenBudget ---
+    if feat.token_budget is not False:
+        if isinstance(feat.token_budget, AgentMiddleware):
+            chain.append(feat.token_budget)
+        else:
+            from deerflow.agents.middlewares.token_budget_middleware import TokenBudgetMiddleware
+            from deerflow.config.token_budget_config import TokenBudgetConfig
+
+            chain.append(TokenBudgetMiddleware.from_config(TokenBudgetConfig()))
+
+    # --- [14] Clarification (always last among built-ins) ---
     chain.append(ClarificationMiddleware())
     extra_tools.append(ask_clarification_tool)
 
